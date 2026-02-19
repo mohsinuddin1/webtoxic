@@ -80,7 +80,7 @@ const useStore = create((set, get) => ({
     // Scan actions
     canScan: () => {
         const { profile } = get()
-        if (!profile) return false
+        if (!profile) return true // Allow scanning while profile is loading
         if (profile.is_pro) return true
         return (profile.daily_scans || 0) < 3
     },

@@ -1,4 +1,4 @@
-import { useRef, useState, useCallback } from 'react'
+import { useRef, useState, useCallback, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { motion, AnimatePresence } from 'framer-motion'
 import useStore from '../store/useStore'
@@ -20,27 +20,39 @@ export default function ScanPage() {
     const [error, setError] = useState('')
     const { user, incrementScan, saveScan, getRemainingScans, profile } = useStore()
 
+    // Start camera: get stream, then let useEffect attach it to video
     const startCamera = useCallback(async () => {
         try {
+            setError('')
             const stream = await navigator.mediaDevices.getUserMedia({
                 video: { facingMode: 'environment', width: { ideal: 1280 }, height: { ideal: 720 } },
             })
-            if (videoRef.current) {
-                const video = videoRef.current
-                video.srcObject = stream
-                streamRef.current = stream
-
-                // Explicitly play after metadata loads — autoPlay alone is unreliable on mobile/HTTPS
-                video.onloadedmetadata = () => {
-                    video.play().catch(() => {
-                        // Autoplay may be blocked; user interaction already happened so this is rare
-                    })
-                }
-
-                setIsCameraActive(true)
-            }
+            streamRef.current = stream
+            setIsCameraActive(true)
         } catch (err) {
             setError('Camera access denied. Please enable camera permissions.')
+        }
+    }, [])
+
+    // Attach stream to video element after React renders it
+    useEffect(() => {
+        if (isCameraActive && streamRef.current && videoRef.current) {
+            const video = videoRef.current
+            video.srcObject = streamRef.current
+            video.onloadedmetadata = () => {
+                video.play().catch(() => { })
+            }
+        }
+    }, [isCameraActive])
+
+    // Auto-start camera when page opens
+    useEffect(() => {
+        startCamera()
+        return () => {
+            if (streamRef.current) {
+                streamRef.current.getTracks().forEach((track) => track.stop())
+                streamRef.current = null
+            }
         }
     }, [])
 
@@ -48,6 +60,9 @@ export default function ScanPage() {
         if (streamRef.current) {
             streamRef.current.getTracks().forEach((track) => track.stop())
             streamRef.current = null
+        }
+        if (videoRef.current) {
+            videoRef.current.srcObject = null
         }
         setIsCameraActive(false)
     }, [])
@@ -82,41 +97,49 @@ export default function ScanPage() {
             // Extract base64 data
             const base64 = capturedImage.split(',')[1]
 
-            // Upload to Supabase Storage
+            // Upload to Supabase Storage (non-blocking — won't break analysis if storage isn't set up)
             let imageUrl = null
             if (user) {
-                const fileName = `${user.id}/${Date.now()}.jpg`
-                const { data: uploadData } = await supabase.storage
-                    .from('product-scans')
-                    .upload(fileName, dataURLtoBlob(capturedImage), {
-                        contentType: 'image/jpeg',
-                    })
-
-                if (uploadData) {
-                    const { data: urlData } = supabase.storage
+                try {
+                    const fileName = `${user.id}/${Date.now()}.jpg`
+                    const { data: uploadData } = await supabase.storage
                         .from('product-scans')
-                        .getPublicUrl(fileName)
-                    imageUrl = urlData?.publicUrl
+                        .upload(fileName, dataURLtoBlob(capturedImage), {
+                            contentType: 'image/jpeg',
+                        })
+
+                    if (uploadData) {
+                        const { data: urlData } = supabase.storage
+                            .from('product-scans')
+                            .getPublicUrl(fileName)
+                        imageUrl = urlData?.publicUrl
+                    }
+                } catch (uploadErr) {
+                    console.warn('Image upload failed (non-critical):', uploadErr)
                 }
             }
 
-            // Analyze with Gemini
-            const result = await analyzeProductImage(base64)
+            // Analyze with Gemini (pass scan mode for tailored prompt)
+            const result = await analyzeProductImage(base64, activeMode)
 
-            // Save scan to database
-            const scanData = {
-                imageUrl,
-                productName: result.productName || 'Unknown Product',
-                ingredients: result.ingredients || [],
-                harmfulChemicals: result.harmfulChemicals || [],
-                grade: result.overallGrade || 'C',
-                score: result.toxicityScore || 50,
+            // Save scan to database (non-blocking)
+            let savedScan = null
+            try {
+                const scanData = {
+                    imageUrl,
+                    productName: result.productName || 'Unknown Product',
+                    ingredients: result.ingredients || [],
+                    harmfulChemicals: result.harmfulChemicals || [],
+                    grade: result.overallGrade || 'C',
+                    score: result.toxicityScore || 50,
+                }
+                savedScan = await saveScan(scanData)
+                await incrementScan()
+            } catch (saveErr) {
+                console.warn('Scan save failed (non-critical):', saveErr)
             }
 
-            const savedScan = await saveScan(scanData)
-            await incrementScan()
-
-            // Navigate to result
+            // Navigate to result — always works even if DB save failed
             if (savedScan) {
                 navigate(`/result/${savedScan.id}`, {
                     state: { result, imageUrl, scanId: savedScan.id },
@@ -185,48 +208,64 @@ export default function ScanPage() {
             {/* Camera / Preview Area */}
             <div className="flex-1 px-5 mb-4">
                 <div className="relative w-full aspect-[3/4] rounded-[1.5rem] overflow-hidden bg-black">
-                    {!isCameraActive && !capturedImage && (
+                    {/* Video element — ALWAYS in DOM, visibility controlled via CSS */}
+                    <video
+                        ref={videoRef}
+                        autoPlay
+                        playsInline
+                        muted
+                        webkit-playsinline="true"
+                        style={{
+                            objectFit: 'cover',
+                            width: '100%',
+                            height: '100%',
+                            display: (isCameraActive && !capturedImage) ? 'block' : 'none',
+                        }}
+                    />
+
+                    {/* Loading state — camera is starting up */}
+                    {!isCameraActive && !capturedImage && !error && (
+                        <motion.div
+                            initial={{ opacity: 0 }}
+                            animate={{ opacity: 1 }}
+                            className="absolute inset-0 flex flex-col items-center justify-center bg-surface-muted"
+                        >
+                            <div className="w-10 h-10 border-3 border-primary/20 border-t-primary rounded-full animate-spin mb-4" />
+                            <p className="text-text-secondary text-sm">Opening camera...</p>
+                        </motion.div>
+                    )}
+
+                    {/* Error state — camera denied */}
+                    {!isCameraActive && !capturedImage && error && (
                         <motion.div
                             initial={{ opacity: 0 }}
                             animate={{ opacity: 1 }}
                             className="absolute inset-0 flex flex-col items-center justify-center bg-surface-muted"
                         >
                             <Camera size={48} className="text-text-muted mb-4" />
-                            <p className="text-text-secondary text-sm mb-6">
-                                Tap to open camera
-                            </p>
+                            <p className="text-danger text-sm mb-6 px-4 text-center">{error}</p>
                             <motion.button
                                 whileTap={{ scale: 0.95 }}
                                 onClick={startCamera}
                                 className="px-8 py-3 bg-primary text-white rounded-[var(--radius-button)] font-semibold text-sm"
                             >
-                                Open Camera
+                                Try Again
                             </motion.button>
                         </motion.div>
                     )}
 
-                    {isCameraActive && (
-                        <>
-                            <video
-                                ref={videoRef}
-                                autoPlay
-                                playsInline
-                                muted
-                                webkit-playsinline="true"
-                                style={{ objectFit: 'cover', width: '100%', height: '100%' }}
-                                className="w-full h-full object-cover"
-                            />
-                            {/* Scan Frame Overlay */}
-                            <div className="absolute inset-0 pointer-events-none">
-                                {/* Corner brackets */}
-                                <div className="absolute top-6 left-6 w-12 h-12 border-t-3 border-l-3 border-white/80 rounded-tl-lg" />
-                                <div className="absolute top-6 right-6 w-12 h-12 border-t-3 border-r-3 border-white/80 rounded-tr-lg" />
-                                <div className="absolute bottom-6 left-6 w-12 h-12 border-b-3 border-l-3 border-white/80 rounded-bl-lg" />
-                                <div className="absolute bottom-6 right-6 w-12 h-12 border-b-3 border-r-3 border-white/80 rounded-br-lg" />
-                            </div>
-                        </>
+                    {/* Scan Frame Overlay */}
+                    {isCameraActive && !capturedImage && (
+                        <div className="absolute inset-0 pointer-events-none">
+                            {/* Corner brackets */}
+                            <div className="absolute top-6 left-6 w-12 h-12 border-t-3 border-l-3 border-white/80 rounded-tl-lg" />
+                            <div className="absolute top-6 right-6 w-12 h-12 border-t-3 border-r-3 border-white/80 rounded-tr-lg" />
+                            <div className="absolute bottom-6 left-6 w-12 h-12 border-b-3 border-l-3 border-white/80 rounded-bl-lg" />
+                            <div className="absolute bottom-6 right-6 w-12 h-12 border-b-3 border-r-3 border-white/80 rounded-br-lg" />
+                        </div>
                     )}
 
+                    {/* Captured image preview */}
                     {capturedImage && (
                         <motion.img
                             initial={{ scale: 1.1, opacity: 0 }}
@@ -282,20 +321,9 @@ export default function ScanPage() {
                 </p>
             )}
 
-            {/* Error */}
-            {error && (
-                <motion.p
-                    initial={{ opacity: 0 }}
-                    animate={{ opacity: 1 }}
-                    className="text-center text-danger text-sm px-5 mb-3"
-                >
-                    {error}
-                </motion.p>
-            )}
-
             {/* Action Buttons */}
             <div className="px-5 pb-8">
-                {isCameraActive && (
+                {isCameraActive && !capturedImage && (
                     <motion.button
                         initial={{ y: 20, opacity: 0 }}
                         animate={{ y: 0, opacity: 1 }}

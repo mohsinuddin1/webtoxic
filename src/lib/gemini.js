@@ -3,11 +3,21 @@ const GEMINI_API_KEY = import.meta.env.VITE_GEMINI_API_KEY
 const GEMINI_API_URL =
     'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent'
 
-const ANALYSIS_PROMPT = `You are a world-class toxicology and nutrition expert. Analyze the product shown in this image.
+function getAnalysisPrompt(scanMode = 'Label') {
+    const modeInstructions = {
+        Item: 'The user has scanned the FULL PRODUCT (front of packaging). Identify the product by its packaging, branding, and any visible information. Infer likely ingredients based on your knowledge of this product/brand.',
+        Label: 'The user has scanned the INGREDIENT LABEL. Carefully read and extract ALL ingredients text visible on the label. Be precise — this is the most important scan mode.',
+        Barcode: 'The user has scanned the BARCODE or back of packaging. Try to identify the product from any visible text, barcodes, or brand markings, then provide ingredient analysis based on your knowledge of this product.',
+    }
+
+    return `You are a world-class toxicology and nutrition expert. Analyze the product shown in this image.
+
+SCAN MODE: ${scanMode.toUpperCase()}
+${modeInstructions[scanMode] || modeInstructions.Label}
 
 INSTRUCTIONS:
 1. Identify the product name and brand from the image.
-2. Extract ALL visible ingredients from the label/packaging.
+2. Extract ALL visible ingredients from the label/packaging. If ingredients aren't clearly visible, use your knowledge of this product.
 3. Detect product type: "food" or "cosmetic".
 4. For EACH ingredient, classify it:
    - Categories: "carcinogen", "endocrine_disruptor", "neurotoxin", "irritant", "allergen", "safe"
@@ -59,11 +69,14 @@ RESPOND ONLY WITH VALID JSON in this exact structure:
 }
 
 IMPORTANT: Return ONLY the JSON object, no markdown, no code blocks, no extra text.`
+}
 
-export async function analyzeProductImage(imageBase64) {
+export async function analyzeProductImage(imageBase64, scanMode = 'Label') {
     if (!GEMINI_API_KEY) {
         throw new Error('Gemini API key not configured. Set VITE_GEMINI_API_KEY in .env')
     }
+
+    const ANALYSIS_PROMPT = getAnalysisPrompt(scanMode)
 
     const body = {
         contents: [
