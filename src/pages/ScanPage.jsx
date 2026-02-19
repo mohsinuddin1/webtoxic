@@ -4,7 +4,7 @@ import { motion, AnimatePresence } from 'framer-motion'
 import useStore from '../store/useStore'
 import { supabase } from '../lib/supabase'
 import { analyzeProductImage } from '../lib/gemini'
-import { ArrowLeft, Camera, Zap, X } from 'lucide-react'
+import { ArrowLeft, Camera, Zap, X, ImageUp } from 'lucide-react'
 
 const SCAN_MODES = ['Item', 'Label', 'Barcode']
 
@@ -12,6 +12,7 @@ export default function ScanPage() {
     const navigate = useNavigate()
     const videoRef = useRef(null)
     const canvasRef = useRef(null)
+    const fileInputRef = useRef(null)
     const streamRef = useRef(null)
     const [activeMode, setActiveMode] = useState('Label')
     const [isCameraActive, setIsCameraActive] = useState(false)
@@ -86,6 +87,38 @@ export default function ScanPage() {
         setCapturedImage(null)
         setError('')
         startCamera()
+    }
+
+    // Upload image from gallery
+    const handleUpload = (e) => {
+        const file = e.target.files?.[0]
+        if (!file) return
+
+        // Validate file type
+        if (!file.type.startsWith('image/')) {
+            setError('Please select a valid image file.')
+            return
+        }
+
+        // Validate file size (max 10MB)
+        if (file.size > 10 * 1024 * 1024) {
+            setError('Image too large. Maximum 10MB allowed.')
+            return
+        }
+
+        const reader = new FileReader()
+        reader.onload = (event) => {
+            setCapturedImage(event.target.result)
+            stopCamera()
+            setError('')
+        }
+        reader.onerror = () => {
+            setError('Failed to read image file.')
+        }
+        reader.readAsDataURL(file)
+
+        // Reset file input so same file can be selected again
+        e.target.value = ''
     }
 
     const analyzeImage = async () => {
@@ -251,6 +284,14 @@ export default function ScanPage() {
                             >
                                 Try Again
                             </motion.button>
+                            <motion.button
+                                whileTap={{ scale: 0.95 }}
+                                onClick={() => fileInputRef.current?.click()}
+                                className="mt-3 px-8 py-3 bg-surface-elevated text-text-primary rounded-[var(--radius-button)] font-semibold text-sm border border-border flex items-center gap-2"
+                            >
+                                <ImageUp size={16} />
+                                Upload from Gallery
+                            </motion.button>
                         </motion.div>
                     )}
 
@@ -324,16 +365,28 @@ export default function ScanPage() {
             {/* Action Buttons */}
             <div className="px-5 pb-8">
                 {isCameraActive && !capturedImage && (
-                    <motion.button
+                    <motion.div
                         initial={{ y: 20, opacity: 0 }}
                         animate={{ y: 0, opacity: 1 }}
-                        whileTap={{ scale: 0.95 }}
-                        onClick={captureImage}
-                        className="w-full py-4 bg-primary text-white rounded-[var(--radius-button)] font-semibold text-[15px] flex items-center justify-center gap-2"
+                        className="flex gap-3"
                     >
-                        <Camera size={18} />
-                        Capture
-                    </motion.button>
+                        <motion.button
+                            whileTap={{ scale: 0.95 }}
+                            onClick={captureImage}
+                            className="flex-1 py-4 bg-primary text-white rounded-[var(--radius-button)] font-semibold text-[15px] flex items-center justify-center gap-2"
+                        >
+                            <Camera size={18} />
+                            Capture
+                        </motion.button>
+                        <motion.button
+                            whileTap={{ scale: 0.95 }}
+                            onClick={() => fileInputRef.current?.click()}
+                            className="py-4 px-5 bg-surface-muted text-text-primary rounded-[var(--radius-button)] font-semibold text-[15px] flex items-center justify-center gap-2 border border-border"
+                        >
+                            <ImageUp size={18} />
+                            Upload
+                        </motion.button>
+                    </motion.div>
                 )}
 
                 {capturedImage && !isAnalyzing && (
@@ -379,11 +432,28 @@ export default function ScanPage() {
                                 )
                             )}
                         </div>
+                        {error && (
+                            <motion.p
+                                initial={{ opacity: 0 }}
+                                animate={{ opacity: 1 }}
+                                className="text-danger text-sm mt-4"
+                            >
+                                {error}
+                            </motion.p>
+                        )}
                     </motion.div>
                 )}
             </div>
 
             <canvas ref={canvasRef} className="hidden" />
+            {/* Hidden file input for gallery upload */}
+            <input
+                ref={fileInputRef}
+                type="file"
+                accept="image/*"
+                onChange={handleUpload}
+                className="hidden"
+            />
         </motion.div>
     )
 }

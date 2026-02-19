@@ -100,11 +100,27 @@ export async function analyzeProductImage(imageBase64, scanMode = 'Label') {
         },
     }
 
-    const response = await fetch(`${GEMINI_API_URL}?key=${GEMINI_API_KEY}`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body),
-    })
+    // Add timeout to prevent infinite loading
+    const controller = new AbortController()
+    const timeoutId = setTimeout(() => controller.abort(), 30000) // 30 second timeout
+
+    let response
+    try {
+        response = await fetch(`${GEMINI_API_URL}?key=${GEMINI_API_KEY}`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(body),
+            signal: controller.signal,
+        })
+    } catch (fetchErr) {
+        clearTimeout(timeoutId)
+        if (fetchErr.name === 'AbortError') {
+            throw new Error('Analysis timed out. Please try again.')
+        }
+        throw new Error(`Network error: ${fetchErr.message}`)
+    } finally {
+        clearTimeout(timeoutId)
+    }
 
     if (!response.ok) {
         const err = await response.text()
