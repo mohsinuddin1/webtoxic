@@ -26,8 +26,17 @@ export default function ScanPage() {
                 video: { facingMode: 'environment', width: { ideal: 1280 }, height: { ideal: 720 } },
             })
             if (videoRef.current) {
-                videoRef.current.srcObject = stream
+                const video = videoRef.current
+                video.srcObject = stream
                 streamRef.current = stream
+
+                // Explicitly play after metadata loads — autoPlay alone is unreliable on mobile/HTTPS
+                video.onloadedmetadata = () => {
+                    video.play().catch(() => {
+                        // Autoplay may be blocked; user interaction already happened so this is rare
+                    })
+                }
+
                 setIsCameraActive(true)
             }
         } catch (err) {
@@ -203,6 +212,8 @@ export default function ScanPage() {
                                 autoPlay
                                 playsInline
                                 muted
+                                webkit-playsinline="true"
+                                style={{ objectFit: 'cover', width: '100%', height: '100%' }}
                                 className="w-full h-full object-cover"
                             />
                             {/* Scan Frame Overlay */}
@@ -250,8 +261,8 @@ export default function ScanPage() {
                                 key={mode}
                                 onClick={() => setActiveMode(mode)}
                                 className={`flex-1 py-2 text-sm font-medium rounded-full transition-all ${activeMode === mode
-                                        ? 'bg-white text-primary shadow-sm'
-                                        : 'text-text-muted'
+                                    ? 'bg-white text-primary shadow-sm'
+                                    : 'text-text-muted'
                                     }`}
                             >
                                 {mode === 'Item' && '📦 '}
