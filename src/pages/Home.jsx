@@ -135,10 +135,10 @@ export default function Home() {
                             </span>
                             <div
                                 className={`w-9 h-9 rounded-full flex items-center justify-center text-sm font-semibold transition-all ${day.isToday
-                                        ? 'bg-primary text-white shadow-md'
-                                        : day.isPast
-                                            ? 'bg-surface-muted text-text-secondary'
-                                            : 'text-text-muted'
+                                    ? 'bg-primary text-white shadow-md'
+                                    : day.isPast
+                                        ? 'bg-surface-muted text-text-secondary'
+                                        : 'text-text-muted'
                                     }`}
                             >
                                 {day.date}
@@ -271,14 +271,14 @@ export default function Home() {
                                     </span>
                                     <span
                                         className={`text-xs font-bold px-2 py-0.5 rounded-full ${scan.grade === 'A'
-                                                ? 'bg-grade-a/20 text-grade-a'
-                                                : scan.grade === 'B'
-                                                    ? 'bg-grade-b/20 text-grade-b'
-                                                    : scan.grade === 'C'
-                                                        ? 'bg-grade-c/20 text-grade-c'
-                                                        : scan.grade === 'D'
-                                                            ? 'bg-grade-d/20 text-grade-d'
-                                                            : 'bg-grade-e/20 text-grade-e'
+                                            ? 'bg-grade-a/20 text-grade-a'
+                                            : scan.grade === 'B'
+                                                ? 'bg-grade-b/20 text-grade-b'
+                                                : scan.grade === 'C'
+                                                    ? 'bg-grade-c/20 text-grade-c'
+                                                    : scan.grade === 'D'
+                                                        ? 'bg-grade-d/20 text-grade-d'
+                                                        : 'bg-grade-e/20 text-grade-e'
                                             }`}
                                     >
                                         {scan.grade || '?'}/{scan.score != null ? Math.round(scan.score / 20) : '?'}
@@ -290,57 +290,78 @@ export default function Home() {
                 )}
             </motion.div>
 
-            {/* FAB Scan Button */}
+            {/* FAB Scan Button — floating over bottom nav */}
             <motion.button
                 initial={{ scale: 0 }}
                 animate={{ scale: 1 }}
                 transition={{ type: 'spring', stiffness: 300, damping: 15, delay: 0.5 }}
                 whileTap={{ scale: 0.9 }}
                 onClick={handleScan}
-                className="fixed bottom-6 right-5 w-16 h-16 bg-primary text-white rounded-full flex items-center justify-center shadow-fab animate-pulse-glow z-50"
-                style={{ maxWidth: '430px' }}
+                className="fixed z-50 flex items-center justify-center"
+                style={{
+                    bottom: 'calc(env(safe-area-inset-bottom, 0px) + 28px)',
+                    right: '20px',
+                    width: '64px',
+                    height: '64px',
+                    borderRadius: '50%',
+                    backgroundColor: '#0a0a0a',
+                    boxShadow: '0 8px 24px rgba(0, 0, 0, 0.3), 0 0 0 4px rgba(255,255,255,1)',
+                }}
             >
-                <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
-                    <path d="M3 7V5a2 2 0 012-2h2M17 3h2a2 2 0 012 2v2M21 17v2a2 2 0 01-2 2h-2M7 21H5a2 2 0 01-2-2v-2" />
-                    <circle cx="12" cy="12" r="3" />
-                    <path d="M12 8v1M12 15v1M8 12h1M15 12h1" />
+                {/* Viewfinder + Biohazard icon */}
+                <svg width="32" height="32" viewBox="0 0 32 32" fill="none">
+                    {/* Corner brackets */}
+                    <path d="M4 10V6a2 2 0 012-2h4" stroke="white" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
+                    <path d="M22 4h4a2 2 0 012 2v4" stroke="white" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
+                    <path d="M28 22v4a2 2 0 01-2 2h-4" stroke="white" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
+                    <path d="M10 28H6a2 2 0 01-2-2v-4" stroke="white" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
+                    {/* Biohazard symbol */}
+                    <text x="16" y="20" textAnchor="middle" fontSize="14" fill="white">☣</text>
                 </svg>
             </motion.button>
 
             {/* Bottom Nav */}
-            <div className="fixed bottom-0 left-1/2 -translate-x-1/2 w-full max-w-[430px] bg-white border-t border-border-light safe-bottom z-40">
-                <div className="flex items-center justify-around py-2">
+            <div className="fixed bottom-0 left-1/2 -translate-x-1/2 w-full max-w-[430px] bg-white/95 backdrop-blur-md border-t border-border-light z-40" style={{ paddingBottom: 'max(env(safe-area-inset-bottom, 0px), 0.5rem)' }}>
+                <div className="flex items-center py-2">
+                    {/* Home */}
                     <button
                         onClick={() => navigate('/')}
-                        className="flex flex-col items-center gap-0.5 px-4 py-1 text-primary"
+                        className="flex-1 flex flex-col items-center gap-1 py-1 text-primary"
                     >
-                        <svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor">
+                        <svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor">
                             <path d="M12 3l9 8h-3v10h-5v-6h-2v6H6V11H3l9-8z" />
                         </svg>
-                        <span className="text-[11px] font-medium">Home</span>
+                        <span className="text-[11px] font-semibold">Home</span>
                     </button>
+
+                    {/* Collections */}
                     <button
                         onClick={() => navigate('/history')}
-                        className="flex flex-col items-center gap-0.5 px-4 py-1 text-text-muted"
+                        className="flex-1 flex flex-col items-center gap-1 py-1 text-text-muted"
                     >
-                        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
-                            <rect x="3" y="3" width="7" height="7" rx="1" />
-                            <rect x="14" y="3" width="7" height="7" rx="1" />
-                            <rect x="3" y="14" width="7" height="7" rx="1" />
-                            <rect x="14" y="14" width="7" height="7" rx="1" />
+                        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
+                            <rect x="3" y="3" width="7" height="7" rx="1.5" />
+                            <rect x="14" y="3" width="7" height="7" rx="1.5" />
+                            <rect x="3" y="14" width="7" height="7" rx="1.5" />
+                            <rect x="14" y="14" width="7" height="7" rx="1.5" />
                         </svg>
                         <span className="text-[11px] font-medium">Collections</span>
                     </button>
+
+                    {/* Settings */}
                     <button
                         onClick={() => navigate('/settings')}
-                        className="flex flex-col items-center gap-0.5 px-4 py-1 text-text-muted"
+                        className="flex-1 flex flex-col items-center gap-1 py-1 text-text-muted"
                     >
-                        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
+                        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
                             <circle cx="12" cy="12" r="3" />
                             <path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z" />
                         </svg>
                         <span className="text-[11px] font-medium">Settings</span>
                     </button>
+
+                    {/* Spacer for FAB area */}
+                    <div className="w-20 flex-shrink-0" />
                 </div>
             </div>
         </motion.div>
