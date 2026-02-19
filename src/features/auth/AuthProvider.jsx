@@ -11,13 +11,25 @@ export function AuthProvider({ children }) {
     const [initialized, setInitialized] = useState(false)
 
     useEffect(() => {
+        // Safety timeout — if getSession takes too long, stop loading anyway
+        const safetyTimeout = setTimeout(() => {
+            setLoading(false)
+            setInitialized(true)
+        }, 5000)
+
         // Get initial session
         supabase.auth.getSession().then(({ data: { session } }) => {
+            clearTimeout(safetyTimeout)
             setSession(session)
             if (session?.user) {
                 setUser(session.user)
                 fetchProfile(session.user.id)
             }
+            setLoading(false)
+            setInitialized(true)
+        }).catch((err) => {
+            clearTimeout(safetyTimeout)
+            console.error('Auth session error:', err)
             setLoading(false)
             setInitialized(true)
         })
@@ -36,7 +48,10 @@ export function AuthProvider({ children }) {
             setLoading(false)
         })
 
-        return () => subscription.unsubscribe()
+        return () => {
+            clearTimeout(safetyTimeout)
+            subscription.unsubscribe()
+        }
     }, [])
 
     const signInWithGoogle = async () => {
