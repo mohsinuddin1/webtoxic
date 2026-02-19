@@ -1,19 +1,18 @@
 const GEMINI_API_KEY = import.meta.env.VITE_GEMINI_API_KEY
 
 const GEMINI_API_URL =
-    'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent'
+    'https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent'
 
-function getAnalysisPrompt(scanMode = 'Label') {
+function getAnalysisPrompt(scanMode = 'Ingredient') {
     const modeInstructions = {
         Item: 'The user has scanned the FULL PRODUCT (front of packaging). Identify the product by its packaging, branding, and any visible information. Infer likely ingredients based on your knowledge of this product/brand.',
-        Label: 'The user has scanned the INGREDIENT LABEL. Carefully read and extract ALL ingredients text visible on the label. Be precise — this is the most important scan mode.',
-        Barcode: 'The user has scanned the BARCODE or back of packaging. Try to identify the product from any visible text, barcodes, or brand markings, then provide ingredient analysis based on your knowledge of this product.',
+        Ingredient: 'The user has scanned the INGREDIENT LABEL. Carefully read and extract ALL ingredients text visible on the label. Be precise — this is the most important scan mode.',
     }
 
     return `You are a world-class toxicology and nutrition expert. Analyze the product shown in this image.
 
 SCAN MODE: ${scanMode.toUpperCase()}
-${modeInstructions[scanMode] || modeInstructions.Label}
+${modeInstructions[scanMode] || modeInstructions.Ingredient}
 
 INSTRUCTIONS:
 1. Identify the product name and brand from the image.
@@ -71,7 +70,8 @@ RESPOND ONLY WITH VALID JSON in this exact structure:
 IMPORTANT: Return ONLY the JSON object, no markdown, no code blocks, no extra text.`
 }
 
-export async function analyzeProductImage(imageBase64, scanMode = 'Label') {
+export async function analyzeProductImage(imageBase64, scanMode = 'Ingredient') {
+    console.log('Starting Gemini analysis...')
     if (!GEMINI_API_KEY) {
         throw new Error('Gemini API key not configured. Set VITE_GEMINI_API_KEY in .env')
     }
@@ -102,18 +102,24 @@ export async function analyzeProductImage(imageBase64, scanMode = 'Label') {
 
     // Add timeout to prevent infinite loading
     const controller = new AbortController()
-    const timeoutId = setTimeout(() => controller.abort(), 30000) // 30 second timeout
+    const timeoutId = setTimeout(() => {
+        console.log('Gemini request timed out!')
+        controller.abort()
+    }, 60000) // 60 second timeout
 
     let response
     try {
+        console.log(`Sending request to: ${GEMINI_API_URL}`)
         response = await fetch(`${GEMINI_API_URL}?key=${GEMINI_API_KEY}`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(body),
             signal: controller.signal,
         })
+        console.log('Received response from Gemini')
     } catch (fetchErr) {
         clearTimeout(timeoutId)
+        console.error('Fetch error:', fetchErr)
         if (fetchErr.name === 'AbortError') {
             throw new Error('Analysis timed out. Please try again.')
         }
@@ -124,10 +130,12 @@ export async function analyzeProductImage(imageBase64, scanMode = 'Label') {
 
     if (!response.ok) {
         const err = await response.text()
+        console.error('Gemini API Error Response:', response.status, err)
         throw new Error(`Gemini API error: ${response.status} - ${err}`)
     }
 
     const data = await response.json()
+    console.log('Gemini Data:', data)
     const text = data.candidates?.[0]?.content?.parts?.[0]?.text
 
     if (!text) {
@@ -138,8 +146,11 @@ export async function analyzeProductImage(imageBase64, scanMode = 'Label') {
     const cleaned = text.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim()
 
     try {
-        return JSON.parse(cleaned)
+        const parsed = JSON.parse(cleaned)
+        console.log('Parsed JSON:', parsed)
+        return parsed
     } catch {
+        console.error('JSON Parse Error. Raw text:', cleaned)
         throw new Error('Failed to parse Gemini response as JSON')
     }
 }

@@ -6,7 +6,7 @@ import { supabase } from '../lib/supabase'
 import { analyzeProductImage } from '../lib/gemini'
 import { ArrowLeft, Camera, Zap, X, ImageUp } from 'lucide-react'
 
-const SCAN_MODES = ['Item', 'Label', 'Barcode']
+const SCAN_MODES = ['Item', 'Ingredient']
 
 export default function ScanPage() {
     const navigate = useNavigate()
@@ -14,7 +14,7 @@ export default function ScanPage() {
     const canvasRef = useRef(null)
     const fileInputRef = useRef(null)
     const streamRef = useRef(null)
-    const [activeMode, setActiveMode] = useState('Label')
+    const [activeMode, setActiveMode] = useState('Ingredient')
     const [isCameraActive, setIsCameraActive] = useState(false)
     const [capturedImage, setCapturedImage] = useState(null)
     const [isAnalyzing, setIsAnalyzing] = useState(false)
@@ -68,27 +68,6 @@ export default function ScanPage() {
         setIsCameraActive(false)
     }, [])
 
-    const captureImage = useCallback(() => {
-        if (!videoRef.current || !canvasRef.current) return
-
-        const video = videoRef.current
-        const canvas = canvasRef.current
-        canvas.width = video.videoWidth
-        canvas.height = video.videoHeight
-        const ctx = canvas.getContext('2d')
-        ctx.drawImage(video, 0, 0)
-
-        const imageData = canvas.toDataURL('image/jpeg', 0.8)
-        setCapturedImage(imageData)
-        stopCamera()
-    }, [stopCamera])
-
-    const retake = () => {
-        setCapturedImage(null)
-        setError('')
-        startCamera()
-    }
-
     // Upload image from gallery
     const handleUpload = (e) => {
         const file = e.target.files?.[0]
@@ -121,6 +100,27 @@ export default function ScanPage() {
         e.target.value = ''
     }
 
+    const captureImage = useCallback(() => {
+        if (!videoRef.current || !canvasRef.current) return
+
+        const video = videoRef.current
+        const canvas = canvasRef.current
+        canvas.width = video.videoWidth
+        canvas.height = video.videoHeight
+        const ctx = canvas.getContext('2d')
+        ctx.drawImage(video, 0, 0)
+
+        const imageData = canvas.toDataURL('image/jpeg', 0.8)
+        setCapturedImage(imageData)
+        stopCamera()
+    }, [stopCamera])
+
+    const retake = () => {
+        setCapturedImage(null)
+        setError('')
+        startCamera()
+    }
+
     const analyzeImage = async () => {
         if (!capturedImage) return
         setIsAnalyzing(true)
@@ -134,12 +134,26 @@ export default function ScanPage() {
             let imageUrl = null
             if (user) {
                 try {
+                    console.log('Starting upload for user:', user.id)
                     const fileName = `${user.id}/${Date.now()}.jpg`
-                    const { data: uploadData } = await supabase.storage
+
+                    // Create a timeout promise (15s)
+                    const uploadTimeout = new Promise((_, reject) =>
+                        setTimeout(() => reject(new Error('Upload timed out')), 15000)
+                    )
+
+                    // The actual upload promise
+                    const uploadPromise = supabase.storage
                         .from('product-scans')
                         .upload(fileName, dataURLtoBlob(capturedImage), {
                             contentType: 'image/jpeg',
+                            upsert: true
                         })
+
+                    // Race them
+                    const { data: uploadData, error: uploadError } = await Promise.race([uploadPromise, uploadTimeout])
+
+                    if (uploadError) throw uploadError
 
                     if (uploadData) {
                         const { data: urlData } = supabase.storage
@@ -147,15 +161,20 @@ export default function ScanPage() {
                             .getPublicUrl(fileName)
                         imageUrl = urlData?.publicUrl
                     }
+                    console.log('Supabase Upload Status:', imageUrl ? 'SUCCESS' : 'FAILED', imageUrl)
                 } catch (uploadErr) {
                     console.warn('Image upload failed (non-critical):', uploadErr)
+                    // No alert to avoid interrupting user flow
                 }
+            } else {
+                console.log('Skipping upload: User not logged in')
             }
 
             // Analyze with Gemini (pass scan mode for tailored prompt)
             const result = await analyzeProductImage(base64, activeMode)
+            // console.log('Gemini Analysis Result:', result)
 
-            // Save scan to database (non-blocking)
+            // Save scan to database (with timeout to prevent hanging)
             let savedScan = null
             try {
                 const scanData = {
@@ -166,13 +185,25 @@ export default function ScanPage() {
                     grade: result.overallGrade || 'C',
                     score: result.toxicityScore || 50,
                 }
-                savedScan = await saveScan(scanData)
-                await incrementScan()
+
+                const savePromise = async () => {
+                    const saved = await saveScan(scanData)
+                    await incrementScan()
+                    return saved
+                }
+
+                const timeoutPromise = new Promise((_, reject) =>
+                    setTimeout(() => reject(new Error('Save timed out')), 3000)
+                )
+
+                savedScan = await Promise.race([savePromise(), timeoutPromise])
             } catch (saveErr) {
-                console.warn('Scan save failed (non-critical):', saveErr)
+                console.warn('Scan save failed/timed out (non-critical):', saveErr)
             }
 
-            // Navigate to result — always works even if DB save failed
+            console.log('Navigating to result...')
+
+            // Navigate to result
             if (savedScan) {
                 navigate(`/result/${savedScan.id}`, {
                     state: { result, imageUrl, scanId: savedScan.id },
@@ -346,8 +377,7 @@ export default function ScanPage() {
                                     }`}
                             >
                                 {mode === 'Item' && '📦 '}
-                                {mode === 'Label' && '🏷️ '}
-                                {mode === 'Barcode' && '📊 '}
+                                {mode === 'Ingredient' && '🏷️ '}
                                 {mode}
                             </button>
                         ))}
@@ -432,15 +462,20 @@ export default function ScanPage() {
                                 )
                             )}
                         </div>
-                        {error && (
-                            <motion.p
-                                initial={{ opacity: 0 }}
-                                animate={{ opacity: 1 }}
-                                className="text-danger text-sm mt-4"
-                            >
-                                {error}
-                            </motion.p>
-                        )}
+                    </motion.div>
+                )}
+
+                {/* Show error message if analysis failed */}
+                {!isAnalyzing && error && capturedImage && (
+                    <motion.div
+                        initial={{ opacity: 0, y: 10 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        className="mt-4 p-4 bg-red-500/10 border border-red-500/20 rounded-xl"
+                    >
+                        <p className="text-danger text-sm text-center font-medium mb-2">{error}</p>
+                        <p className="text-text-muted text-xs text-center">
+                            Please try again or retake the photo to ensure text is clear.
+                        </p>
                     </motion.div>
                 )}
             </div>
