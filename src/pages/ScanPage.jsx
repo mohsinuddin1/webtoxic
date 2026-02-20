@@ -4,6 +4,7 @@ import { motion, AnimatePresence } from 'framer-motion'
 import useStore from '../store/useStore'
 import { supabase } from '../lib/supabase'
 import { BrowserMultiFormatReader } from '@zxing/browser'
+import { DecodeHintType, BarcodeFormat } from '@zxing/library'
 import { ArrowLeft, Camera, Zap, X, ImageUp, ScanBarcode, Package, Tag, Keyboard } from 'lucide-react'
 
 const SCAN_MODES = ['Barcode', 'Item', 'Ingredient']
@@ -98,22 +99,51 @@ export default function ScanPage() {
     }, [selectedCategory, activeMode])
 
     // Start barcode camera scanning
+    const barcodeDetectedRef = useRef(false)
+
     const startBarcodeScanner = useCallback(async () => {
         if (!barcodeVideoRef.current) return
         try {
             setError('')
             setIsBarcodeScanning(true)
             setBarcodeDetected(false)
+            barcodeDetectedRef.current = false
 
-            const reader = new BrowserMultiFormatReader()
+            // Build hints with proper enum keys from @zxing/library
+            const hints = new Map()
+            hints.set(DecodeHintType.POSSIBLE_FORMATS, [
+                BarcodeFormat.EAN_13,
+                BarcodeFormat.EAN_8,
+                BarcodeFormat.UPC_A,
+                BarcodeFormat.UPC_E,
+                BarcodeFormat.CODE_128,
+                BarcodeFormat.CODE_39,
+                BarcodeFormat.ITF,
+                BarcodeFormat.QR_CODE,
+            ])
+            hints.set(DecodeHintType.TRY_HARDER, true)
+
+            const reader = new BrowserMultiFormatReader(hints)
             barcodeReaderRef.current = reader
 
-            const controls = await reader.decodeFromVideoDevice(
-                undefined, // use default camera (rear)
+            // Use decodeFromConstraints with HD resolution for better barcode detection
+            const constraints = {
+                video: {
+                    facingMode: 'environment',
+                    width: { ideal: 1280 },
+                    height: { ideal: 720 },
+                    focusMode: { ideal: 'continuous' },
+                }
+            }
+
+            const controls = await reader.decodeFromConstraints(
+                constraints,
                 barcodeVideoRef.current,
                 (result, err) => {
-                    if (result && !barcodeDetected) {
+                    if (result && !barcodeDetectedRef.current) {
                         const code = result.getText()
+                        console.log('Barcode detected:', code)
+                        barcodeDetectedRef.current = true
                         setBarcodeValue(code)
                         setBarcodeDetected(true)
                         // Stop scanning after detection
@@ -131,7 +161,7 @@ export default function ScanPage() {
             setShowManualEntry(true)
             setIsBarcodeScanning(false)
         }
-    }, [barcodeDetected])
+    }, [])
 
     // Stop barcode scanner
     const stopBarcodeScanner = useCallback(() => {
@@ -343,7 +373,7 @@ export default function ScanPage() {
             const { data: { session } } = await supabase.auth.getSession()
             if (!session) throw new Error('No active session for analysis')
 
-            const { data: result, error: functionError } = await supabase.functions.invoke('analyze-scan', {
+            const { data: result, error: functionError } = await supabase.functions.invoke('analyze-scanFinal', {
                 body: {
                     imageUrl,
                     imageBase64: imageUrl ? null : capturedImage,
