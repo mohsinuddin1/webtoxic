@@ -75,14 +75,24 @@ function getLevelInfo(xp) {
 
 export default function Home() {
     const navigate = useNavigate()
-    const { profile, scanHistory, fetchScanHistory, canScan, getRemainingScans } =
+    const { profile, scanHistory, fetchScanHistory, canScan, getRemainingScans, loading } =
         useStore()
     const weekDays = getWeekDays()
     const level = getLevelInfo(profile?.level_xp || 0)
 
     useEffect(() => {
-        fetchScanHistory()
-    }, [])
+        if (!loading && profile) {
+            fetchScanHistory()
+        }
+    }, [loading, profile])
+
+    if (loading) {
+        return (
+            <div className="min-h-dvh flex items-center justify-center bg-white">
+                <div className="w-10 h-10 border-3 border-primary/20 border-t-primary rounded-full animate-spin" />
+            </div>
+        )
+    }
 
     const todayScans = scanHistory.filter((s) => {
         const scanDate = new Date(s.created_at).toDateString()
@@ -123,6 +133,12 @@ export default function Home() {
                     </h1>
                     <span className="text-xl">☣️</span>
                 </div>
+                <button
+                    onClick={() => navigate('/temp')}
+                    className="block mx-auto mt-2 text-xs bg-gray-100 text-gray-600 px-2 py-1 rounded border"
+                >
+                    Test Upload (Temp)
+                </button>
             </motion.div>
 
             {/* Week Calendar */}

@@ -9,6 +9,7 @@ import ResultPage from './pages/ResultPage'
 import Paywall from './pages/Paywall'
 import Settings from './pages/Settings'
 
+
 const queryClient = new QueryClient()
 
 function ProtectedRoute({ children }) {
@@ -112,6 +113,7 @@ function AppRoutes() {
           </ProtectedRoute>
         }
       />
+
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
   )

@@ -1,7 +1,7 @@
 import { useNavigate } from 'react-router-dom'
 import { motion } from 'framer-motion'
 import useStore from '../store/useStore'
-import { useAuth } from '../features/auth/AuthProvider'
+
 import {
     ArrowLeft,
     LogOut,
@@ -25,12 +25,10 @@ function getLevelInfo(xp) {
 export default function Settings() {
     const navigate = useNavigate()
     const { user, profile, signOut: storeSignOut } = useStore()
-    const { signOut } = useAuth()
     const level = getLevelInfo(profile?.level_xp || 0)
 
     const handleSignOut = async () => {
-        await signOut()
-        storeSignOut()
+        await storeSignOut()
         navigate('/')
     }
 

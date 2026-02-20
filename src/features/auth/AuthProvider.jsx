@@ -11,44 +11,60 @@ export function AuthProvider({ children }) {
     const [initialized, setInitialized] = useState(false)
 
     useEffect(() => {
-        // Safety timeout — if getSession takes too long, stop loading anyway
+        let isMounted = true
+
+        // We use safety timeout just in case nothing fires
         const safetyTimeout = setTimeout(() => {
-            setLoading(false)
-            setInitialized(true)
-        }, 5000)
-
-        // Get initial session
-        supabase.auth.getSession().then(({ data: { session } }) => {
-            clearTimeout(safetyTimeout)
-            setSession(session)
-            if (session?.user) {
-                setUser(session.user)
-                fetchProfile(session.user.id)
+            if (isMounted) {
+                setLoading(false)
+                setInitialized(true)
             }
-            setLoading(false)
-            setInitialized(true)
-        }).catch((err) => {
-            clearTimeout(safetyTimeout)
-            console.error('Auth session error:', err)
-            setLoading(false)
-            setInitialized(true)
-        })
+        }, 3000)
 
-        // Listen for auth changes
+        // Supabase v2 fires onAuthStateChange immediately upon subscription with INITIAL_SESSION.
         const {
             data: { subscription },
-        } = supabase.auth.onAuthStateChange(async (_event, session) => {
-            setSession(session)
-            if (session?.user) {
-                setUser(session.user)
-                await fetchProfile(session.user.id)
-            } else {
+        } = supabase.auth.onAuthStateChange((event, session) => {
+            if (!isMounted) return
+
+            console.log('Firebase-style Auth Event ->', event)
+
+            if (event === 'SIGNED_OUT') {
                 setUser(null)
+                useStore.setState({ profile: null, session: null })
+                setLoading(false)
+                setInitialized(true)
+                return
             }
-            setLoading(false)
+
+            // Ignore failures to refresh due to being offline. Keep their local state alive!
+            if (event === 'TOKEN_REFRESH_FAILED') {
+                console.warn('Network offline or token expiring. Keeping user logged in locally.')
+                return
+            }
+
+            if (session?.user) {
+                setSession(session)
+                setUser(session.user)
+
+                // Fetch profile gracefully in the background so offline mode doesn't crash the app
+                fetchProfile(session.user.id).catch(err => console.warn('Offline: Profile fetch delayed', err))
+
+                setLoading(false)
+                setInitialized(true)
+            } else if (event === 'INITIAL_SESSION') {
+                // If there's no session initially, they are naturally logged out
+                setUser(null)
+                useStore.setState({ profile: null, session: null })
+                setLoading(false)
+                setInitialized(true)
+            }
+
+            clearTimeout(safetyTimeout)
         })
 
         return () => {
+            isMounted = false
             clearTimeout(safetyTimeout)
             subscription.unsubscribe()
         }

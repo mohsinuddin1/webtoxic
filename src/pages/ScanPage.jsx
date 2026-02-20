@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import { motion, AnimatePresence } from 'framer-motion'
 import useStore from '../store/useStore'
 import { supabase } from '../lib/supabase'
-import { analyzeProductImage } from '../lib/gemini'
+
 import { ArrowLeft, Camera, Zap, X, ImageUp } from 'lucide-react'
 
 const SCAN_MODES = ['Item', 'Ingredient']
@@ -127,56 +127,99 @@ export default function ScanPage() {
         setError('')
 
         try {
-            // Extract base64 data
+            console.log(`SCAN_DEBUG [${Date.now()}]: Image captured, starting workflow...`)
+
+            // Extract base64 (Fix: ensure variable exists for fallback)
             const base64 = capturedImage.split(',')[1]
 
-            // Upload to Supabase Storage (non-blocking — won't break analysis if storage isn't set up)
+            // 1. Upload to Supabase Storage
             let imageUrl = null
-            if (user) {
+
+            // Get fresh user session (with timeout to prevent hang)
+            let currentUser = user // Default to store user
+            try {
+                console.log(`SCAN_DEBUG [${Date.now()}]: Checking auth session...`)
+                const sessionPromise = supabase.auth.getUser()
+                const timeoutPromise = new Promise((_, reject) =>
+                    setTimeout(() => reject(new Error('Auth check timeout')), 5000)
+                )
+
+                const { data: { user: sessionUser }, error: sessionError } = await Promise.race([sessionPromise, timeoutPromise])
+
+                if (sessionError) throw sessionError
+                if (sessionUser) currentUser = sessionUser
+                console.log(`SCAN_DEBUG [${Date.now()}]: Auth check done. User: ${currentUser?.id}`)
+            } catch (authErr) {
+                console.warn(`SCAN_DEBUG [${Date.now()}]: Auth check failed/timed out, using store user:`, authErr)
+            }
+
+            if (currentUser) {
                 try {
-                    console.log('Starting upload for user:', user.id)
-                    const fileName = `${user.id}/${Date.now()}.jpg`
+                    console.log(`SCAN_DEBUG [${Date.now()}]: Starting upload...`)
+                    const fileName = `${currentUser.id}/${Date.now()}.jpg`
 
-                    // Create a timeout promise (15s)
-                    const uploadTimeout = new Promise((_, reject) =>
-                        setTimeout(() => reject(new Error('Upload timed out')), 15000)
-                    )
+                    // Convert to blob and log size
+                    if (!capturedImage) {
+                        throw new Error("No captured image found")
+                    }
+                    const blob = dataURLtoBlob(capturedImage)
+                    console.log(`SCAN_DEBUG: Blob created. Size: ${blob.size} bytes, Type: ${blob.type}`)
 
-                    // The actual upload promise
-                    const uploadPromise = supabase.storage
+                    const { data: uploadData, error: uploadError } = await supabase.storage
                         .from('product-scans')
-                        .upload(fileName, dataURLtoBlob(capturedImage), {
+                        .upload(fileName, blob, {
                             contentType: 'image/jpeg',
                             upsert: true
                         })
 
-                    // Race them
-                    const { data: uploadData, error: uploadError } = await Promise.race([uploadPromise, uploadTimeout])
-
-                    if (uploadError) throw uploadError
+                    if (uploadError) {
+                        console.error('SCAN_DEBUG: Upload error object:', uploadError)
+                        throw uploadError
+                    }
 
                     if (uploadData) {
                         const { data: urlData } = supabase.storage
                             .from('product-scans')
                             .getPublicUrl(fileName)
                         imageUrl = urlData?.publicUrl
+                        console.log('SCAN_DEBUG: Upload success, URL:', imageUrl)
                     }
-                    console.log('Supabase Upload Status:', imageUrl ? 'SUCCESS' : 'FAILED', imageUrl)
                 } catch (uploadErr) {
-                    console.warn('Image upload failed (non-critical):', uploadErr)
-                    // No alert to avoid interrupting user flow
+                    console.warn('SCAN_DEBUG: Image upload failed (continuing with base64 fallback):', uploadErr)
                 }
             } else {
-                console.log('Skipping upload: User not logged in')
+                console.warn('SCAN_DEBUG: User not verified via getUser(), checking store user...')
+                if (!user) console.warn('SCAN_DEBUG: No user found in store either. Upload skipped.')
             }
 
-            // Analyze with Gemini (pass scan mode for tailored prompt)
-            const result = await analyzeProductImage(base64, activeMode)
-            // console.log('Gemini Analysis Result:', result)
+            // 2. Call Supabase Edge Function (Fast & Secure)
+            console.log(`SCAN_DEBUG [${Date.now()}]: Invoking Edge Function...`)
 
-            // Save scan to database (with timeout to prevent hanging)
+            // Explicitly get session to prevent 401
+            const { data: { session } } = await supabase.auth.getSession()
+            if (!session) throw new Error('No active session for analysis')
+            console.log(`SCAN_DEBUG [${Date.now()}]: Session token present: ${!!session.access_token}`)
+
+            const { data: result, error: functionError } = await supabase.functions.invoke('analyze-scan', {
+                body: {
+                    imageUrl,
+                    // Pass base64 as fallback if imageUrl is null or fails
+                    imageBase64: imageUrl ? null : capturedImage,
+                    scanMode: activeMode
+                }
+            })
+
+            if (functionError) {
+                console.error('Edge Function Error:', functionError)
+                throw new Error('Analysis failed at server level.')
+            }
+
+            console.log('SCAN_DEBUG: Edge Function Success', result)
+
+            // 3. Save scan to database
             let savedScan = null
             try {
+                console.log('SCAN_DEBUG: Saving scan to DB...')
                 const scanData = {
                     imageUrl,
                     productName: result.productName || 'Unknown Product',
@@ -186,6 +229,7 @@ export default function ScanPage() {
                     score: result.toxicityScore || 50,
                 }
 
+                // 10s timeout for DB save
                 const savePromise = async () => {
                     const saved = await saveScan(scanData)
                     await incrementScan()
@@ -193,17 +237,17 @@ export default function ScanPage() {
                 }
 
                 const timeoutPromise = new Promise((_, reject) =>
-                    setTimeout(() => reject(new Error('Save timed out')), 3000)
+                    setTimeout(() => reject(new Error('DB Save timed out')), 10000)
                 )
 
                 savedScan = await Promise.race([savePromise(), timeoutPromise])
+                console.log('SCAN_DEBUG: Scan saved to DB:', savedScan?.id)
             } catch (saveErr) {
-                console.warn('Scan save failed/timed out (non-critical):', saveErr)
+                console.warn('SCAN_DEBUG: Scan save failed/timed out:', saveErr)
             }
 
-            console.log('Navigating to result...')
-
-            // Navigate to result
+            // 4. Navigate
+            console.log('SCAN_DEBUG: Navigating to result...')
             if (savedScan) {
                 navigate(`/result/${savedScan.id}`, {
                     state: { result, imageUrl, scanId: savedScan.id },
@@ -214,7 +258,7 @@ export default function ScanPage() {
                 })
             }
         } catch (err) {
-            console.error('Analysis error:', err)
+            console.error('SCAN_DEBUG: Critical analysis error:', err)
             setError(err.message || 'Analysis failed. Please try again.')
         } finally {
             setIsAnalyzing(false)

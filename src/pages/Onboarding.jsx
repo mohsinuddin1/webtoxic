@@ -27,7 +27,8 @@ const slides = [
 
 export default function Onboarding() {
     const [currentSlide, setCurrentSlide] = useState(0)
-    const [showAuth, setShowAuth] = useState(false)
+    const { setOnboarded, hasSeenOnboarding } = useStore()
+    const [showAuth, setShowAuth] = useState(hasSeenOnboarding)
     const [isLogin, setIsLogin] = useState(true)
     const [email, setEmail] = useState('')
     const [password, setPassword] = useState('')
@@ -35,7 +36,6 @@ export default function Onboarding() {
     const [error, setError] = useState('')
     const [loading, setLoading] = useState(false)
     const { signInWithGoogle, signInWithEmail, signUpWithEmail } = useAuth()
-    const { setOnboarded } = useStore()
 
     const handleNext = () => {
         if (currentSlide < slides.length - 1) {
@@ -70,10 +70,15 @@ export default function Onboarding() {
         try {
             if (isLogin) {
                 await signInWithEmail(email, password)
+                setOnboarded()
             } else {
-                await signUpWithEmail(email, password)
+                const data = await signUpWithEmail(email, password)
+                if (data?.session) {
+                    setOnboarded()
+                } else if (data?.user) {
+                    setError('Account created! Please check your email to verify.')
+                }
             }
-            setOnboarded()
         } catch (err) {
             setError(err.message)
         } finally {

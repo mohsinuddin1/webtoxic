@@ -169,8 +169,13 @@ const useStore = create((set, get) => ({
 
     // Sign out
     signOut: async () => {
-        await supabase.auth.signOut()
+        // Clear local state immediately for UI responsiveness
         set({ user: null, profile: null, session: null, scanHistory: [] })
+        try {
+            await supabase.auth.signOut()
+        } catch (error) {
+            console.error('Error signing out:', error)
+        }
     },
 }))
 
