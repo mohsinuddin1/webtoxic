@@ -1,6 +1,6 @@
 # import requests
 
-# API_KEY = "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"  # ⚠️ Use a NEW key (old one is compromised)
+# API_KEY = ""  # ⚠️ Use a NEW key (old one is compromised)
 
 # # Simple test - list available models
 # response = requests.get(

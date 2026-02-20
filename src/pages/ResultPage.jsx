@@ -11,6 +11,8 @@ import {
     ChevronDown,
     ChevronUp,
     X,
+    Wheat,
+    Droplets,
 } from 'lucide-react'
 
 const GRADE_COLORS = {
@@ -271,6 +273,68 @@ export default function ResultPage() {
                 </motion.div>
             )}
 
+            {/* Allergens */}
+            {result.allergens?.length > 0 && (
+                <motion.div
+                    initial={{ y: 20, opacity: 0 }}
+                    animate={{ y: 0, opacity: 1 }}
+                    transition={{ delay: 0.42 }}
+                    className="px-5 pb-4"
+                >
+                    <h3 className="font-bold text-sm mb-2">⚠️ Allergens</h3>
+                    <div className="flex flex-wrap gap-2">
+                        {result.allergens.map((allergen) => (
+                            <span
+                                key={allergen}
+                                className="px-3 py-1.5 bg-amber-100 text-amber-700 rounded-full text-xs font-semibold capitalize"
+                            >
+                                {allergen}
+                            </span>
+                        ))}
+                    </div>
+                </motion.div>
+            )}
+
+            {/* Nova Group + Nutrient Levels */}
+            {(result.novaGroup || result.nutrientLevels) && (
+                <motion.div
+                    initial={{ y: 20, opacity: 0 }}
+                    animate={{ y: 0, opacity: 1 }}
+                    transition={{ delay: 0.44 }}
+                    className="px-5 pb-4"
+                >
+                    <div className="flex gap-3">
+                        {result.novaGroup && (
+                            <div className="flex-1 bg-surface-elevated rounded-[var(--radius-card)] p-4 border border-border-light text-center">
+                                <Wheat size={18} className="text-amber-500 mx-auto mb-1.5" />
+                                <p className="text-[10px] text-text-muted mb-1">Processing</p>
+                                <p className="text-lg font-bold">NOVA {result.novaGroup}</p>
+                                <p className="text-[10px] text-text-muted mt-0.5">
+                                    {result.novaGroup === 1 ? 'Unprocessed' : result.novaGroup === 2 ? 'Processed Ingredients' : result.novaGroup === 3 ? 'Processed' : 'Ultra-processed'}
+                                </p>
+                            </div>
+                        )}
+                        {result.nutrientLevels && Object.keys(result.nutrientLevels).length > 0 && (
+                            <div className="flex-1 bg-surface-elevated rounded-[var(--radius-card)] p-4 border border-border-light">
+                                <Droplets size={18} className="text-blue-500 mb-1.5" />
+                                <p className="text-[10px] text-text-muted mb-2">Nutrient Levels</p>
+                                <div className="space-y-1.5">
+                                    {Object.entries(result.nutrientLevels).map(([key, level]) => (
+                                        <div key={key} className="flex items-center justify-between">
+                                            <span className="text-[11px] capitalize">{key.replace(/-/g, ' ')}</span>
+                                            <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded-full ${level === 'low' ? 'bg-green-100 text-green-700' :
+                                                    level === 'moderate' ? 'bg-amber-100 text-amber-700' :
+                                                        'bg-red-100 text-red-700'
+                                                }`}>{level}</span>
+                                        </div>
+                                    ))}
+                                </div>
+                            </div>
+                        )}
+                    </div>
+                </motion.div>
+            )}
+
             {/* Tabs */}
             <motion.div
                 initial={{ y: 20, opacity: 0 }}
@@ -286,8 +350,8 @@ export default function ResultPage() {
                             key={tab}
                             onClick={() => setActiveTab(i)}
                             className={`flex-1 py-2 text-xs font-medium rounded-full transition-all ${activeTab === i
-                                    ? 'bg-white text-primary shadow-sm'
-                                    : 'text-text-muted'
+                                ? 'bg-white text-primary shadow-sm'
+                                : 'text-text-muted'
                                 }`}
                         >
                             {tab}
@@ -449,9 +513,12 @@ export default function ResultPage() {
                                     { label: 'Carbs', value: result.macros.carbs, unit: 'g', color: 'bg-yellow-400' },
                                     { label: 'Fats', value: result.macros.fats, unit: 'g', color: 'bg-red-400' },
                                     { label: 'Sugar', value: result.macros.sugar, unit: 'g', color: 'bg-pink-400' },
+                                    { label: 'Fiber', value: result.macros.fiber, unit: 'g', color: 'bg-green-400' },
+                                    { label: 'Salt', value: result.macros.salt, unit: 'g', color: 'bg-gray-400' },
+                                    { label: 'Saturated Fat', value: result.macros.saturatedFat, unit: 'g', color: 'bg-rose-400' },
                                 ].map(
                                     (macro) =>
-                                        macro.value != null && (
+                                        macro.value != null && macro.value > 0 && (
                                             <div key={macro.label} className="flex items-center gap-3">
                                                 <div className={`w-3 h-3 rounded-full ${macro.color}`} />
                                                 <span className="text-sm flex-1">{macro.label}</span>
@@ -461,6 +528,13 @@ export default function ResultPage() {
                                                 </span>
                                             </div>
                                         )
+                                )}
+                                {result.nutriGrade && (
+                                    <div className="pt-3 mt-3 border-t border-border-light flex items-center justify-between">
+                                        <span className="text-sm text-text-muted">Nutri-Score</span>
+                                        <span className={`w-8 h-8 rounded-lg flex items-center justify-center text-white font-bold text-sm ${{ A: 'bg-grade-a', B: 'bg-grade-b', C: 'bg-grade-c', D: 'bg-grade-d', E: 'bg-grade-e' }[result.nutriGrade] || 'bg-gray-400'
+                                            }`}>{result.nutriGrade}</span>
+                                    </div>
                                 )}
                             </div>
                         </motion.div>

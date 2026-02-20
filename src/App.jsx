@@ -4,6 +4,7 @@ import { AuthProvider } from './features/auth/AuthProvider'
 import useStore from './store/useStore'
 import Onboarding from './pages/Onboarding'
 import Home from './pages/Home'
+import History from './pages/History'
 import ScanPage from './pages/ScanPage'
 import ResultPage from './pages/ResultPage'
 import Paywall from './pages/Paywall'
@@ -109,7 +110,7 @@ function AppRoutes() {
         path="/history"
         element={
           <ProtectedRoute>
-            <Home />
+            <History />
           </ProtectedRoute>
         }
       />

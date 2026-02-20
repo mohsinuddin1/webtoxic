@@ -1,6 +1,7 @@
 import { useNavigate } from 'react-router-dom'
 import { motion } from 'framer-motion'
 import useStore from '../store/useStore'
+import BottomNav from '../components/BottomNav'
 
 import {
     ArrowLeft,
@@ -179,9 +180,12 @@ export default function Settings() {
             </motion.div>
 
             {/* Version */}
-            <p className="text-center text-text-muted text-[10px] mt-6">
+            <p className="text-center text-text-muted text-[10px] mt-6 mb-4">
                 PureScan AI v1.0.0
             </p>
+
+            {/* Bottom Nav */}
+            <BottomNav />
         </motion.div>
     )
 }
