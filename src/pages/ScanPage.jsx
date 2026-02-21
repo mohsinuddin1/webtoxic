@@ -48,7 +48,12 @@ export default function ScanPage() {
                 streamRef.current = null
             }
             const stream = await navigator.mediaDevices.getUserMedia({
-                video: { facingMode: 'environment', width: { ideal: 1280 }, height: { ideal: 720 } },
+                video: {
+                    facingMode: 'environment',
+                    width: { ideal: 1920 },
+                    height: { ideal: 1080 },
+                    focusMode: { ideal: 'continuous' },
+                },
             })
             streamRef.current = stream
             setIsCameraActive(true)
@@ -134,9 +139,9 @@ export default function ScanPage() {
         } catch (_) { /* audio not supported */ }
     }, [])
 
-    // Toggle torch/flashlight
+    // Toggle torch/flashlight (works for both barcode and item/ingredient cameras)
     const toggleTorch = useCallback(async () => {
-        const stream = barcodeStreamRef.current
+        const stream = barcodeStreamRef.current || streamRef.current
         if (!stream) return
         const track = stream.getVideoTracks()[0]
         if (!track) return
@@ -333,6 +338,7 @@ export default function ScanPage() {
             streamRef.current.getTracks().forEach((track) => track.stop())
             streamRef.current = null
         }
+        setTorchOn(false)
         if (videoRef.current) {
             videoRef.current.srcObject = null
         }
@@ -372,7 +378,7 @@ export default function ScanPage() {
         canvas.height = video.videoHeight
         const ctx = canvas.getContext('2d')
         ctx.drawImage(video, 0, 0)
-        const imageData = canvas.toDataURL('image/jpeg', 0.8)
+        const imageData = canvas.toDataURL('image/jpeg', 0.92)
         setCapturedImage(imageData)
         stopCamera()
     }, [stopCamera])
@@ -726,8 +732,8 @@ export default function ScanPage() {
                             {isBarcodeScanning && scanEngine && (
                                 <div className="absolute top-3 left-3 z-10">
                                     <span className={`px-2.5 py-1 rounded-full text-[10px] font-bold tracking-wider backdrop-blur-md ${scanEngine === 'native'
-                                            ? 'bg-green-500/20 text-green-300 border border-green-400/30'
-                                            : 'bg-amber-500/20 text-amber-300 border border-amber-400/30'
+                                        ? 'bg-green-500/20 text-green-300 border border-green-400/30'
+                                        : 'bg-amber-500/20 text-amber-300 border border-amber-400/30'
                                         }`}>
                                         {scanEngine === 'native' ? '⚡ NATIVE' : '📦 ZXING'}
                                     </span>
@@ -1054,6 +1060,23 @@ export default function ScanPage() {
                                 Upload from Gallery
                             </motion.button>
                         </motion.div>
+                    )}
+
+                    {/* Torch toggle for Item/Ingredient camera */}
+                    {isCameraActive && !capturedImage && (
+                        <button
+                            onClick={toggleTorch}
+                            className="absolute top-3 right-3 z-10 w-9 h-9 rounded-full flex items-center justify-center backdrop-blur-md transition-all"
+                            style={{
+                                backgroundColor: torchOn ? 'rgba(250, 204, 21, 0.3)' : 'rgba(0,0,0,0.4)',
+                                border: torchOn ? '1px solid rgba(250, 204, 21, 0.5)' : '1px solid rgba(255,255,255,0.2)',
+                            }}
+                        >
+                            {torchOn
+                                ? <Flashlight size={16} className="text-yellow-300" />
+                                : <FlashlightOff size={16} className="text-white/70" />
+                            }
+                        </button>
                     )}
 
                     {/* Scan Frame Overlay */}
