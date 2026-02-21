@@ -5,7 +5,7 @@ import useStore from '../store/useStore'
 import { supabase } from '../lib/supabase'
 import { BrowserMultiFormatReader } from '@zxing/browser'
 import { DecodeHintType, BarcodeFormat } from '@zxing/library'
-import { ArrowLeft, Camera, Zap, X, ImageUp, ScanBarcode, Package, Tag, Keyboard } from 'lucide-react'
+import { ArrowLeft, Camera, Zap, X, ImageUp, ScanBarcode, Package, Tag, Keyboard, Flashlight, FlashlightOff } from 'lucide-react'
 
 const SCAN_MODES = ['Barcode', 'Item', 'Ingredient']
 
@@ -33,6 +33,8 @@ export default function ScanPage() {
     const [isBarcodeScanning, setIsBarcodeScanning] = useState(false)
     const [showManualEntry, setShowManualEntry] = useState(false)
     const [barcodeDetected, setBarcodeDetected] = useState(false)
+    const [scanEngine, setScanEngine] = useState(null) // 'native' | 'zxing'
+    const [torchOn, setTorchOn] = useState(false)
 
     const { user, incrementScan, saveScan, getRemainingScans, profile } = useStore()
 
@@ -98,8 +100,76 @@ export default function ScanPage() {
         }
     }, [selectedCategory, activeMode])
 
-    // Start barcode camera scanning
+    // ================================================================
+    // BARCODE SCANNER — Native BarcodeDetector (fast) + zxing fallback
+    // ================================================================
     const barcodeDetectedRef = useRef(false)
+    const barcodeStreamRef = useRef(null)
+    const scanLoopRef = useRef(null)
+    const lastScanTimeRef = useRef(0)
+    const SCAN_INTERVAL_MS = 66 // ~15fps — optimal balance of speed vs battery
+
+    // Haptic feedback on barcode detection
+    const triggerHaptic = useCallback(() => {
+        try {
+            if (navigator.vibrate) navigator.vibrate([50, 30, 50])
+        } catch (_) { /* vibration not supported */ }
+    }, [])
+
+    // Audio beep on barcode detection
+    const playScanBeep = useCallback(() => {
+        try {
+            const ctx = new (window.AudioContext || window.webkitAudioContext)()
+            const osc = ctx.createOscillator()
+            const gain = ctx.createGain()
+            osc.connect(gain)
+            gain.connect(ctx.destination)
+            osc.type = 'sine'
+            osc.frequency.setValueAtTime(1200, ctx.currentTime)
+            osc.frequency.setValueAtTime(1600, ctx.currentTime + 0.08)
+            gain.gain.setValueAtTime(0.15, ctx.currentTime)
+            gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.2)
+            osc.start(ctx.currentTime)
+            osc.stop(ctx.currentTime + 0.2)
+        } catch (_) { /* audio not supported */ }
+    }, [])
+
+    // Toggle torch/flashlight
+    const toggleTorch = useCallback(async () => {
+        const stream = barcodeStreamRef.current
+        if (!stream) return
+        const track = stream.getVideoTracks()[0]
+        if (!track) return
+        try {
+            const capabilities = track.getCapabilities?.()
+            if (capabilities?.torch) {
+                const newState = !torchOn
+                await track.applyConstraints({ advanced: [{ torch: newState }] })
+                setTorchOn(newState)
+            }
+        } catch (_) { /* torch not supported on this device */ }
+    }, [torchOn])
+
+    const stopBarcodeScanner = useCallback(() => {
+        // Stop scan loop
+        if (scanLoopRef.current) {
+            cancelAnimationFrame(scanLoopRef.current)
+            scanLoopRef.current = null
+        }
+        // Stop zxing controls if using fallback
+        if (barcodeControlsRef.current) {
+            barcodeControlsRef.current.stop()
+            barcodeControlsRef.current = null
+        }
+        // Release camera stream
+        if (barcodeStreamRef.current) {
+            barcodeStreamRef.current.getTracks().forEach(t => t.stop())
+            barcodeStreamRef.current = null
+        }
+        setIsBarcodeScanning(false)
+        setTorchOn(false)
+        setScanEngine(null)
+    }, [])
 
     const startBarcodeScanner = useCallback(async () => {
         if (!barcodeVideoRef.current) return
@@ -109,68 +179,141 @@ export default function ScanPage() {
             setBarcodeDetected(false)
             barcodeDetectedRef.current = false
 
-            // Build hints with proper enum keys from @zxing/library
-            const hints = new Map()
-            hints.set(DecodeHintType.POSSIBLE_FORMATS, [
-                BarcodeFormat.EAN_13,
-                BarcodeFormat.EAN_8,
-                BarcodeFormat.UPC_A,
-                BarcodeFormat.UPC_E,
-                BarcodeFormat.CODE_128,
-                BarcodeFormat.CODE_39,
-                BarcodeFormat.ITF,
-                BarcodeFormat.QR_CODE,
-            ])
-            hints.set(DecodeHintType.TRY_HARDER, true)
-
-            const reader = new BrowserMultiFormatReader(hints)
-            barcodeReaderRef.current = reader
-
-            // Use decodeFromConstraints with HD resolution for better barcode detection
-            const constraints = {
-                video: {
-                    facingMode: 'environment',
-                    width: { ideal: 1280 },
-                    height: { ideal: 720 },
-                    focusMode: { ideal: 'continuous' },
+            // Check native BarcodeDetector with format validation
+            let useNative = false
+            if ('BarcodeDetector' in window) {
+                try {
+                    const supported = await window.BarcodeDetector.getSupportedFormats()
+                    // Need at least EAN-13 or UPC-A for product barcodes
+                    useNative = supported.includes('ean_13') || supported.includes('upc_a')
+                    if (!useNative) {
+                        console.log('Native BarcodeDetector exists but lacks product barcode formats:', supported)
+                    }
+                } catch (_) {
+                    console.log('getSupportedFormats() failed, testing native detector directly')
+                    useNative = true // assume it works, fallback on error
                 }
             }
 
-            const controls = await reader.decodeFromConstraints(
-                constraints,
-                barcodeVideoRef.current,
-                (result, err) => {
-                    if (result && !barcodeDetectedRef.current) {
-                        const code = result.getText()
-                        console.log('Barcode detected:', code)
-                        barcodeDetectedRef.current = true
-                        setBarcodeValue(code)
-                        setBarcodeDetected(true)
-                        // Stop scanning after detection
-                        if (barcodeControlsRef.current) {
-                            barcodeControlsRef.current.stop()
+            if (useNative) {
+                // ── NATIVE PATH: Hardware-accelerated (~20-50ms per detect) ──
+                console.log('⚡ Using native BarcodeDetector (fast)')
+                setScanEngine('native')
+                const detector = new window.BarcodeDetector({
+                    formats: ['ean_13', 'ean_8', 'upc_a', 'upc_e', 'code_128', 'code_39', 'itf', 'qr_code']
+                })
+
+                // Open camera with HD + autofocus
+                const stream = await navigator.mediaDevices.getUserMedia({
+                    video: {
+                        facingMode: 'environment',
+                        width: { ideal: 1280 },
+                        height: { ideal: 720 },
+                        focusMode: { ideal: 'continuous' },
+                    }
+                })
+                barcodeStreamRef.current = stream
+                barcodeVideoRef.current.srcObject = stream
+                await barcodeVideoRef.current.play()
+
+                // Throttled scan loop — ~15fps to save CPU/battery
+                const scanLoop = async (timestamp) => {
+                    if (barcodeDetectedRef.current) return
+
+                    // Throttle: skip frame if too soon
+                    if (timestamp - lastScanTimeRef.current < SCAN_INTERVAL_MS) {
+                        scanLoopRef.current = requestAnimationFrame(scanLoop)
+                        return
+                    }
+                    lastScanTimeRef.current = timestamp
+
+                    try {
+                        // Guard: video must have enough data loaded
+                        if (barcodeVideoRef.current?.readyState >= 2) {
+                            const barcodes = await detector.detect(barcodeVideoRef.current)
+                            if (barcodes.length > 0 && !barcodeDetectedRef.current) {
+                                const code = barcodes[0].rawValue
+                                console.log('⚡ Barcode detected (native):', code)
+                                barcodeDetectedRef.current = true
+                                setBarcodeValue(code)
+                                setBarcodeDetected(true)
+                                setIsBarcodeScanning(false)
+                                // Haptic + audio feedback
+                                triggerHaptic()
+                                playScanBeep()
+                                // Release camera
+                                if (barcodeStreamRef.current) {
+                                    barcodeStreamRef.current.getTracks().forEach(t => t.stop())
+                                    barcodeStreamRef.current = null
+                                }
+                                setTorchOn(false)
+                                return
+                            }
                         }
-                        setIsBarcodeScanning(false)
+                    } catch (e) {
+                        // Frame not ready or detector error, continue
+                    }
+                    scanLoopRef.current = requestAnimationFrame(scanLoop)
+                }
+                scanLoopRef.current = requestAnimationFrame(scanLoop)
+
+            } else {
+                // ── FALLBACK: @zxing/browser (slower, ~500ms-2s) ──
+                console.log('📦 Using @zxing/browser fallback (no native BarcodeDetector)')
+                setScanEngine('zxing')
+                const hints = new Map()
+                hints.set(DecodeHintType.POSSIBLE_FORMATS, [
+                    BarcodeFormat.EAN_13,
+                    BarcodeFormat.EAN_8,
+                    BarcodeFormat.UPC_A,
+                    BarcodeFormat.UPC_E,
+                    BarcodeFormat.CODE_128,
+                    BarcodeFormat.CODE_39,
+                    BarcodeFormat.ITF,
+                    BarcodeFormat.QR_CODE,
+                ])
+                hints.set(DecodeHintType.TRY_HARDER, true)
+
+                const reader = new BrowserMultiFormatReader(hints)
+                barcodeReaderRef.current = reader
+
+                const constraints = {
+                    video: {
+                        facingMode: 'environment',
+                        width: { ideal: 1280 },
+                        height: { ideal: 720 },
                     }
                 }
-            )
-            barcodeControlsRef.current = controls
+
+                const controls = await reader.decodeFromConstraints(
+                    constraints,
+                    barcodeVideoRef.current,
+                    (result, err) => {
+                        if (result && !barcodeDetectedRef.current) {
+                            const code = result.getText()
+                            console.log('📦 Barcode detected (zxing):', code)
+                            barcodeDetectedRef.current = true
+                            setBarcodeValue(code)
+                            setBarcodeDetected(true)
+                            // Haptic + audio feedback
+                            triggerHaptic()
+                            playScanBeep()
+                            if (barcodeControlsRef.current) {
+                                barcodeControlsRef.current.stop()
+                            }
+                            setIsBarcodeScanning(false)
+                        }
+                    }
+                )
+                barcodeControlsRef.current = controls
+            }
         } catch (err) {
             console.error('Barcode scanner error:', err)
             setError('Camera access denied. Use manual entry instead.')
             setShowManualEntry(true)
             setIsBarcodeScanning(false)
         }
-    }, [])
-
-    // Stop barcode scanner
-    const stopBarcodeScanner = useCallback(() => {
-        if (barcodeControlsRef.current) {
-            barcodeControlsRef.current.stop()
-            barcodeControlsRef.current = null
-        }
-        setIsBarcodeScanning(false)
-    }, [])
+    }, [triggerHaptic, playScanBeep])
 
     // Auto-start barcode scanner when mode is Barcode
     useEffect(() => {
@@ -578,6 +721,35 @@ export default function ScanPage() {
                                     height: '100%',
                                 }}
                             />
+
+                            {/* Scan engine badge */}
+                            {isBarcodeScanning && scanEngine && (
+                                <div className="absolute top-3 left-3 z-10">
+                                    <span className={`px-2.5 py-1 rounded-full text-[10px] font-bold tracking-wider backdrop-blur-md ${scanEngine === 'native'
+                                            ? 'bg-green-500/20 text-green-300 border border-green-400/30'
+                                            : 'bg-amber-500/20 text-amber-300 border border-amber-400/30'
+                                        }`}>
+                                        {scanEngine === 'native' ? '⚡ NATIVE' : '📦 ZXING'}
+                                    </span>
+                                </div>
+                            )}
+
+                            {/* Torch toggle button */}
+                            {isBarcodeScanning && (
+                                <button
+                                    onClick={toggleTorch}
+                                    className="absolute top-3 right-3 z-10 w-9 h-9 rounded-full flex items-center justify-center backdrop-blur-md transition-all"
+                                    style={{
+                                        backgroundColor: torchOn ? 'rgba(250, 204, 21, 0.3)' : 'rgba(0,0,0,0.4)',
+                                        border: torchOn ? '1px solid rgba(250, 204, 21, 0.5)' : '1px solid rgba(255,255,255,0.2)',
+                                    }}
+                                >
+                                    {torchOn
+                                        ? <Flashlight size={16} className="text-yellow-300" />
+                                        : <FlashlightOff size={16} className="text-white/70" />
+                                    }
+                                </button>
+                            )}
 
                             {/* Scan line animation */}
                             {isBarcodeScanning && (
