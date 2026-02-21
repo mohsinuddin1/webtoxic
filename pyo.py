@@ -37,7 +37,7 @@ import requests
 import json
 
 # 🔐 Replace with your real API key
-GEMINI_API_KEY = "AIzaSyDDrTOjk2_11Omjs45iwe7V9qy1RuIHSws"
+GEMINI_API_KEY = ""
 
 url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={GEMINI_API_KEY}"
 
