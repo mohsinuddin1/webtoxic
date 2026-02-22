@@ -1,6 +1,8 @@
+import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { motion } from 'framer-motion'
 import useStore from '../store/useStore'
+import { supabase } from '../lib/supabase'
 import BottomNav from '../components/BottomNav'
 
 import {
@@ -13,6 +15,10 @@ import {
     HelpCircle,
     ChevronRight,
     Mail,
+    CalendarClock,
+    CreditCard,
+    Loader2,
+    ExternalLink,
 } from 'lucide-react'
 
 function getLevelInfo(xp) {
@@ -28,19 +34,78 @@ export default function Settings() {
     const { user, profile, signOut: storeSignOut } = useStore()
     const level = getLevelInfo(profile?.level_xp || 0)
 
+    // Subscription state
+    const [subInfo, setSubInfo] = useState(null)
+    const [subLoading, setSubLoading] = useState(false)
+    const [portalLoading, setPortalLoading] = useState(false)
+
+    // Fetch subscription info on mount for pro users
+    useEffect(() => {
+        if (profile?.is_pro) {
+            setSubLoading(true)
+            supabase.functions.invoke('manage-subscription', {
+                body: { action: 'get-info' }
+            }).then(({ data, error }) => {
+                if (!error && data?.subscription) {
+                    setSubInfo(data.subscription)
+                }
+            }).finally(() => setSubLoading(false))
+        }
+    }, [profile?.is_pro])
+
     const handleSignOut = async () => {
         await storeSignOut()
         navigate('/')
     }
 
+    // Open Stripe Customer Portal
+    const handleManageSubscription = async () => {
+        setPortalLoading(true)
+        try {
+            const { data, error } = await supabase.functions.invoke('manage-subscription', {
+                body: { action: 'create-portal' }
+            })
+            if (error) throw new Error(error.message)
+            if (data?.url) {
+                window.location.href = data.url
+            } else {
+                console.error('No portal URL returned')
+            }
+        } catch (err) {
+            console.error('Portal error:', err)
+        } finally {
+            setPortalLoading(false)
+        }
+    }
+
+    // Format date helper
+    const formatDate = (timestamp) => {
+        if (!timestamp) return ''
+        return new Date(timestamp * 1000).toLocaleDateString('en-US', {
+            month: 'short', day: 'numeric', year: 'numeric'
+        })
+    }
+
+    // Get status label and color
+    const getStatusBadge = (status) => {
+        const map = {
+            active: { label: 'Active', color: 'bg-green-100 text-green-700' },
+            trialing: { label: 'Free Trial', color: 'bg-blue-100 text-blue-700' },
+            past_due: { label: 'Past Due', color: 'bg-amber-100 text-amber-700' },
+            canceled: { label: 'Cancelled', color: 'bg-red-100 text-red-700' },
+            unpaid: { label: 'Unpaid', color: 'bg-red-100 text-red-700' },
+        }
+        return map[status] || { label: status, color: 'bg-gray-100 text-gray-700' }
+    }
+
     const menuItems = [
-        {
+        ...(!profile?.is_pro ? [{
             icon: Crown,
-            label: profile?.is_pro ? 'Pro Member' : 'Upgrade to Pro',
-            subtitle: profile?.is_pro ? 'Unlimited scans active' : '3 free scans/day',
-            action: () => !profile?.is_pro && navigate('/paywall'),
+            label: 'Upgrade to Pro',
+            subtitle: '3 free scans/day',
+            action: () => navigate('/paywall'),
             accent: true,
-        },
+        }] : []),
         {
             icon: User,
             label: 'Account',
@@ -135,6 +200,81 @@ export default function Settings() {
                     </div>
                 </div>
             </motion.div>
+
+            {/* Subscription Card (Pro users only) */}
+            {profile?.is_pro && (
+                <motion.div variants={item} className="px-5 mb-4">
+                    <div className="rounded-[var(--radius-card)] border border-accent/30 overflow-hidden"
+                        style={{ background: 'linear-gradient(135deg, rgba(232,168,56,0.08) 0%, rgba(240,192,96,0.04) 100%)' }}
+                    >
+                        {/* Header */}
+                        <div className="p-4 pb-3">
+                            <div className="flex items-center justify-between mb-3">
+                                <div className="flex items-center gap-2">
+                                    <div className="w-9 h-9 rounded-xl flex items-center justify-center"
+                                        style={{ background: 'linear-gradient(135deg, #e8a838, #f0c060)' }}
+                                    >
+                                        <Crown size={16} className="text-white" />
+                                    </div>
+                                    <div>
+                                        <h3 className="font-bold text-sm">Pro Subscription</h3>
+                                        {subInfo && (
+                                            <span className={`inline-block px-2 py-0.5 rounded-full text-[10px] font-bold mt-0.5 ${getStatusBadge(subInfo.status).color}`}>
+                                                {getStatusBadge(subInfo.status).label}
+                                            </span>
+                                        )}
+                                    </div>
+                                </div>
+                                {subLoading && <Loader2 size={16} className="text-text-muted animate-spin" />}
+                            </div>
+
+                            {/* Subscription Details */}
+                            {subInfo && (
+                                <div className="space-y-2">
+                                    {/* Plan */}
+                                    <div className="flex items-center gap-2.5 text-sm">
+                                        <CreditCard size={14} className="text-text-muted flex-shrink-0" />
+                                        <span className="text-text-secondary">
+                                            {subInfo.plan.name} Plan — ₹{subInfo.plan.amount.toLocaleString()}/{subInfo.plan.interval}
+                                        </span>
+                                    </div>
+
+                                    {/* Renewal / Trial / Cancellation date */}
+                                    <div className="flex items-center gap-2.5 text-sm">
+                                        <CalendarClock size={14} className="text-text-muted flex-shrink-0" />
+                                        <span className="text-text-secondary">
+                                            {subInfo.status === 'trialing' && subInfo.trialEnd
+                                                ? `Trial ends ${formatDate(subInfo.trialEnd)}`
+                                                : subInfo.cancelAtPeriodEnd
+                                                    ? `Cancels on ${formatDate(subInfo.currentPeriodEnd)}`
+                                                    : `Renews ${formatDate(subInfo.currentPeriodEnd)}`
+                                            }
+                                        </span>
+                                    </div>
+                                </div>
+                            )}
+
+                            {!subInfo && !subLoading && (
+                                <p className="text-text-muted text-xs">Unlimited scans active</p>
+                            )}
+                        </div>
+
+                        {/* Manage Button */}
+                        <button
+                            onClick={handleManageSubscription}
+                            disabled={portalLoading}
+                            className="w-full flex items-center justify-center gap-2 py-3 border-t border-accent/15 text-sm font-medium text-accent hover:bg-accent/5 transition-colors disabled:opacity-50"
+                        >
+                            {portalLoading ? (
+                                <><Loader2 size={14} className="animate-spin" /> Opening...
+                                </>
+                            ) : (
+                                <><ExternalLink size={14} /> Manage Subscription</>
+                            )}
+                        </button>
+                    </div>
+                </motion.div>
+            )}
 
             {/* Menu Items */}
             <div className="px-5 space-y-2">

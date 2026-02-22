@@ -418,7 +418,7 @@ export default function ScanPage() {
 
             setAnalyzeSteps(['Looking up product...', 'Calling product database...'])
 
-            const { data: result, error: fnError } = await supabase.functions.invoke('scan-barcode', {
+            const { data: result, error: fnError } = await supabase.functions.invoke('scan-barcode2', {
                 body: { barcode: barcodeValue.trim(), category: selectedCategory }
             })
 
@@ -522,7 +522,7 @@ export default function ScanPage() {
             const { data: { session } } = await supabase.auth.getSession()
             if (!session) throw new Error('No active session for analysis')
 
-            const { data: result, error: functionError } = await supabase.functions.invoke('analyze-scanFinal', {
+            const { data: result, error: functionError } = await supabase.functions.invoke('analyze-scanFinal2', {
                 body: {
                     imageUrl,
                     imageBase64: imageUrl ? null : capturedImage,

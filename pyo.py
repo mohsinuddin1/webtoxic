@@ -70,3 +70,14 @@ try:
 
 except Exception as e:
     print("Error:", str(e))
+
+{
+  "barcode": "5000112611762",
+  "category": "food"
+}
+
+
+{
+  "barcode": "3600540676627",
+  "category": "cosmetics"
+}
