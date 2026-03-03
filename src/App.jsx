@@ -10,6 +10,7 @@ import ScanPage from './pages/ScanPage'
 import ResultPage from './pages/ResultPage'
 import Paywall from './pages/Paywall'
 import Settings from './pages/Settings'
+import PrivacyPolicy from './pages/Legal'
 
 
 const queryClient = new QueryClient()
@@ -98,6 +99,10 @@ function AppRoutes() {
       <Route
         path="/paywall"
         element={<Paywall />}
+      />
+      <Route
+        path="/privacy"
+        element={<PrivacyPolicy />}
       />
       <Route
         path="/settings"

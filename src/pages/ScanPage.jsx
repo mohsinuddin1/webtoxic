@@ -479,49 +479,63 @@ export default function ScanPage() {
         setError('')
 
         try {
+            console.log('[analyzeImage] Step 1: Starting authentication check...')
+            // Get active session instantly (no fragile network wait)
+            const { data: { session }, error: authError } = await supabase.auth.getSession()
+
+            if (authError) {
+                console.error('[analyzeImage] Authentication Error:', authError)
+            }
+
+            if (!session) {
+                console.error('[analyzeImage] Authentication Failed: No active session found.')
+                throw new Error('No active session for analysis')
+            }
+
+            console.log('[analyzeImage] Authentication successful. User ID:', session.user.id)
+
+            const currentUser = session.user
+
             // Upload to Supabase Storage
             let imageUrl = null
-            let currentUser = user
+
             try {
-                const sessionPromise = supabase.auth.getUser()
-                const timeoutPromise = new Promise((_, reject) =>
-                    setTimeout(() => reject(new Error('Auth check timeout')), 5000)
-                )
-                const { data: { user: sessionUser }, error: sessionError } = await Promise.race([sessionPromise, timeoutPromise])
-                if (!sessionError && sessionUser) currentUser = sessionUser
-            } catch (authErr) {
-                console.warn('Auth check failed, using store user:', authErr)
-            }
+                console.log('[analyzeImage] Step 2: Preparing image for Supabase upload...')
+                const fileName = `${currentUser.id}/${Date.now()}.jpg`
+                const blob = dataURLtoBlob(capturedImage)
+                // Use File object for safer compatibility with Supabase upload across environments
+                const file = new File([blob], fileName.split('/').pop(), { type: 'image/jpeg' })
 
-            if (currentUser) {
-                try {
-                    const fileName = `${currentUser.id}/${Date.now()}.jpg`
-                    const blob = dataURLtoBlob(capturedImage)
+                console.log(`[analyzeImage] Starting upload to Supabase bucket 'product-scans' as '${fileName}'...`)
+                const { data: uploadData, error: uploadError } = await supabase.storage
+                    .from('product-scans')
+                    .upload(fileName, file, {
+                        contentType: 'image/jpeg',
+                        upsert: true
+                    })
 
-                    const { data: uploadData, error: uploadError } = await supabase.storage
-                        .from('product-scans')
-                        .upload(fileName, blob, {
-                            contentType: 'image/jpeg',
-                            upsert: true
-                        })
-
-                    if (uploadError) throw uploadError
-
-                    if (uploadData) {
-                        const { data: urlData } = supabase.storage
-                            .from('product-scans')
-                            .getPublicUrl(fileName)
-                        imageUrl = urlData?.publicUrl
-                    }
-                } catch (uploadErr) {
-                    console.warn('Image upload failed (continuing with base64 fallback):', uploadErr)
+                if (uploadError) {
+                    console.error('[analyzeImage] Supabase Upload Error. Details:', uploadError)
+                    throw uploadError
                 }
+
+                console.log('[analyzeImage] Supabase Upload successful! Upload Data:', uploadData)
+
+                if (uploadData) {
+                    console.log('[analyzeImage] Fetching public URL for the uploaded image...')
+                    const { data: urlData } = supabase.storage
+                        .from('product-scans')
+                        .getPublicUrl(fileName)
+                    imageUrl = urlData?.publicUrl
+                    console.log('[analyzeImage] Step 3: Upload complete. Public Image URL:', imageUrl)
+                }
+            } catch (uploadErr) {
+                console.error('[analyzeImage] Upload Process Failed:', uploadErr)
+                console.warn('[analyzeImage] Continuing with base64 fallback since upload failed.')
             }
 
+            console.log('[analyzeImage] Step 4: Calling Edge Function analyze-scanFinal2 with imageUrl:', imageUrl)
             // Call Edge Function
-            const { data: { session } } = await supabase.auth.getSession()
-            if (!session) throw new Error('No active session for analysis')
-
             const { data: result, error: functionError } = await supabase.functions.invoke('analyze-scanFinal2', {
                 body: {
                     imageUrl,
