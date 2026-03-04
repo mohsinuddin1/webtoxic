@@ -11,6 +11,7 @@ import ResultPage from './pages/ResultPage'
 import Paywall from './pages/Paywall'
 import Settings from './pages/Settings'
 import PrivacyPolicy from './pages/Legal'
+import AccountDeletion from './pages/AccountDeletion'
 
 
 const queryClient = new QueryClient()
@@ -103,6 +104,10 @@ function AppRoutes() {
       <Route
         path="/privacy"
         element={<PrivacyPolicy />}
+      />
+      <Route
+        path="/delete-account"
+        element={<AccountDeletion />}
       />
       <Route
         path="/settings"

@@ -138,10 +138,13 @@ export default function PrivacyPolicy() {
                     </p>
                 </section>
 
-                <section className="text-center pt-8 pb-4">
+                <section className="text-center pt-8 pb-4 space-y-4">
                     <p className="text-sm text-[var(--color-text-secondary)]">
                         If you have questions about this policy, please let us know at <br />
                         <a href="mailto:purescanai@outlook.com" className="text-[var(--color-accent)] font-semibold underline mt-1 inline-block">purescanai@outlook.com</a>
+                    </p>
+                    <p className="text-sm text-[var(--color-text-secondary)]">
+                        <Link to="/delete-account" className="text-[var(--color-accent)] font-semibold hover:underline">Request Account Deletion</Link>
                     </p>
                 </section>
             </main>
