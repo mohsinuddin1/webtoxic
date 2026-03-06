@@ -120,9 +120,9 @@ export default function Settings() {
         },
         {
             icon: Shield,
-            label: 'Privacy & Security',
-            subtitle: 'Data protection',
-            action: () => { },
+            label: 'Health Preferences',
+            subtitle: 'Risk assessment settings',
+            action: () => navigate('/health-preferences'),
         },
         {
             icon: HelpCircle,

@@ -12,6 +12,7 @@ import Paywall from './pages/Paywall'
 import Settings from './pages/Settings'
 import PrivacyPolicy from './pages/Legal'
 import AccountDeletion from './pages/AccountDeletion'
+import HealthPreferences from './pages/HealthPreferences'
 
 
 const queryClient = new QueryClient()
@@ -114,6 +115,14 @@ function AppRoutes() {
         element={
           <ProtectedRoute>
             <Settings />
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/health-preferences"
+        element={
+          <ProtectedRoute>
+            <HealthPreferences />
           </ProtectedRoute>
         }
       />

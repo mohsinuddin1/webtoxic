@@ -13,8 +13,21 @@ const useStore = create((set, get) => ({
     isAnalyzing: false,
     scanHistory: [],
 
+    // Health Preferences
+    healthPreferences: JSON.parse(localStorage.getItem('purescan_health_prefs')) || {
+        diseases: [],
+        allergies: [],
+        goals: []
+    },
+
     // UI state
     hasSeenOnboarding: localStorage.getItem('purescan_onboarded') === 'true',
+
+    // Actions
+    setHealthPreferences: (prefs) => {
+        localStorage.setItem('purescan_health_prefs', JSON.stringify(prefs))
+        set({ healthPreferences: prefs })
+    },
 
     // Auth actions
     setUser: (user) => set({ user }),
@@ -177,6 +190,13 @@ const useStore = create((set, get) => ({
             console.error('Error signing out:', error)
         }
     },
+
+    // DEV utility
+    clearOnboarding: () => {
+        localStorage.removeItem('purescan_onboarded')
+        localStorage.removeItem('purescan_health_prefs')
+        set({ hasSeenOnboarding: false, healthPreferences: { diseases: [], allergies: [], goals: [] } })
+    }
 }))
 
 export default useStore

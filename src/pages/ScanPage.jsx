@@ -418,7 +418,7 @@ export default function ScanPage() {
 
             setAnalyzeSteps(['Looking up product...', 'Calling product database...'])
 
-            const { data: result, error: fnError } = await supabase.functions.invoke('scan-barcode2', {
+            const { data: result, error: fnError } = await supabase.functions.invoke('scan-barcode5hybrid', {
                 body: { barcode: barcodeValue.trim(), category: selectedCategory }
             })
 
